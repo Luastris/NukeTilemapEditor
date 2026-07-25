@@ -1,6 +1,6 @@
 # NukeTilemapEditor
 
-The EDITOR-ONLY companion of [NukeTilemap](../NukeTilemap) for
+The EDITOR-ONLY companion of [NukeTilemap](https://github.com/Luastris/NukeTilemap) for
 [NukeEngine](https://github.com/Luastris/NukeEngine-Eco): it owns the tooling for the
 file types the runtime module registers, keeping the editor core format-blind — asset
 types get their own per-file editors through the engine's `RegisterAssetEditor` registry,
