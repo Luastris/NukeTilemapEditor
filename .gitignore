@@ -1,0 +1,22 @@
+# Build output
+build/
+[Bb]in/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.lib
+*.dll
+*.tlog
+*.lastbuildstate
+
+# Visual Studio / IDE
+.vs/
+*.user
+*.suo
+
+# logs / OS
+*.log
+Thumbs.db
+.DS_Store
