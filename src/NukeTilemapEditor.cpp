@@ -1,13 +1,5 @@
-// NukeTilemapEditor — the EDITOR-ONLY companion of NukeTilemap: it owns the tooling for
-// the file types the runtime module registers. The .nutile TILE SET EDITOR lives here:
-// double-click routes through the engine's RegisterAssetEditor registry (the editor core
-// never learns the format), each file opens its own window (floating/dockable, drags out
-// to a native OS window via the multi-viewport backend) with full CRUD:
-//   texture + atlas grid | tile list (add/remove) | per-tile id/name/walk/flags |
-//   CLICKABLE ATLAS (toggle cells on the selected tile) | Save/Revert/undo + dirty guard.
-// Saving re-parses the loaded tile set IN PLACE (InvalidateTileSet) — live tilemaps in the
-// scene rebake immediately. This module imports NukeImGui, so packaging auto-excludes it
-// from game dists; editorTool() keeps it always-on in the editor host.
+// NukeTilemapEditor — editor-only companion of NukeTilemap: the .nutile tile set editor,
+// registered via RegisterAssetEditor. Imports NukeImGui, so packaging excludes it from dists.
 #include <interface/NUKEEInteface.h>
 #include <interface/AppInstance.h>
 #include <interface/AssetCreators.h>
@@ -18,7 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include <imgui/imgui.h>
-#include <nukeui.h>   // NukeUI::DocWindow — detachable document windows (shared UI module)
+#include <nukeui.h>   // NukeUI::DocWindow — detachable document windows
 
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
@@ -36,18 +28,14 @@ namespace bfs = boost::filesystem;
 
 namespace {
 
-// The docs window is registered from the main thread (RunOnMain) and popped in Shutdown;
-// both run on the game thread, so a plain flag is enough.
-bool g_windowPushed = false;
+bool g_windowPushed = false;   // touched on the game thread only (RunOnMain push, Shutdown pop)
 
 struct TileDefEd
 {
 	int              id = 1;
 	std::string      name;
 	std::vector<int> cells;
-	// Free-form atlas pixel rects (imported packed atlases): {x,y,w,h,rot}. When non-empty
-	// they override `cells` — matching NukeTilemap's TileDef contract.
-	std::vector<std::array<int, 5>> rects;
+	std::vector<std::array<int, 5>> rects;   // {x,y,w,h,rot}; non-empty overrides `cells`
 	int              walk = 100;
 	std::string      flags;   // comma-separated in the UI, array in the file
 };
@@ -62,18 +50,16 @@ struct TileDoc
 	int   cols = 4, rows = 4;
 	std::vector<TileDefEd> tiles;
 	int   sel = 0;
-	// atlas preview (GPU handle owned by this doc)
-	uint64_t prev = 0; int prevW = 0, prevH = 0;
+	uint64_t prev = 0; int prevW = 0, prevH = 0;   // atlas preview, GPU handle owned by this doc
 	std::string prevFrom;                // texPath the preview was uploaded from
 	float zoom = 1.0f;
-	// undo/redo: whole-doc JSON snapshots, coalesced per committed edit
-	std::vector<std::string> undo, redo;
+	std::vector<std::string> undo, redo;  // whole-doc JSON snapshots, one per committed edit
 	std::string idle;                    // pre-edit baseline
 };
 
 std::vector<TileDoc> g_docs;
 
-// ---- (de)serialization (the same JSON contract NukeTilemap's LoadTileSet parses) --------------
+// ---- (de)serialization: must match the JSON contract NukeTilemap's LoadTileSet parses ----
 
 std::string DocJson(const TileDoc& d)
 {
@@ -147,7 +133,7 @@ void ParseDoc(TileDoc& d, const std::string& text)
 	if (d.sel >= (int)d.tiles.size()) d.sel = d.tiles.empty() ? 0 : (int)d.tiles.size() - 1;
 }
 
-// ---- atlas preview ---------------------------------------------------------------------------
+// ---- atlas preview ----
 
 void FreePreview(TileDoc& d)
 {
@@ -177,7 +163,7 @@ void EnsurePreview(TileDoc& d)
 	delete t;
 }
 
-// ---- undo (whole-doc snapshots, one entry per committed edit) ----------------------------------
+// ---- undo ----
 
 void PushUndo(TileDoc& d)
 {
@@ -195,7 +181,7 @@ void ApplySnapshot(TileDoc& d, const std::string& js)
 	EnsurePreview(d);
 }
 
-// ---- save --------------------------------------------------------------------------------------
+// ---- save ----
 
 void SaveDoc(TileDoc& d)
 {
@@ -205,7 +191,7 @@ void SaveDoc(TileDoc& d)
 	f.write(js.data(), (std::streamsize)js.size());
 	f.close();
 	d.dirty = false;
-	// Hot-reload the runtime module's cached set: live tilemaps rebake with the new defs.
+	// Hot-reload the runtime module's cached set so live tilemaps rebake.
 	boost::system::error_code ec;
 	const std::string content = AppInstance::GetSingleton()->contentRoot;
 	std::string rel = d.path;
@@ -218,12 +204,10 @@ void SaveDoc(TileDoc& d)
 	std::cout << "[TileEd]\tsaved " << d.path << std::endl;
 }
 
-// ---- the window ------------------------------------------------------------------------------
-
+// ---- the window ----
 
 // Content .nutex picker: button with the current file, popup lists every .nutex under the
-// project content (module-side stand-in for the editor's AssetPicker - a file reference is
-// NEVER a raw text box).
+// project content. Returns true when the selection changed.
 static bool NutexPicker(const char* label, std::string& path, float width)
 {
 	namespace bfs = boost::filesystem;
@@ -259,10 +243,8 @@ static void DrawDocBody(TileDoc& d);
 void DrawDoc(TileDoc& d)
 {
 	EnsurePreview(d);
-	// DETACHABLE document window (NukeUI::DocWindow): docked = imgui window in the main
-	// context, detached = its own OS window; tear-off/dock-back by dragging, exactly like
-	// the built-in asset editors. The content lambda re-finds the doc BY PATH — it can run
-	// in the host pass, and g_docs may shift meanwhile.
+	// The content lambda re-finds the doc BY PATH: it runs in the host pass, where g_docs may
+	// have shifted underneath a captured reference.
 	const std::string docId = "tile:" + d.path;
 	// "###<id>" keeps the imgui identity stable while the dirty " *" comes and goes.
 	const std::string title = bfs::path(d.path).filename().string() + (d.dirty ? " *" : "") + "###" + docId;
@@ -292,7 +274,6 @@ static void DrawDocBody(TileDoc& d)
 		d.idle = DocJson(d); d.undo.clear(); d.redo.clear(); d.dirty = false;
 		EnsurePreview(d);
 	}
-	// local Ctrl+Z/Y while this window is focused
 	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl)
 	{
 		if (ImGui::IsKeyPressed(ImGuiKey_Z, false) && !d.undo.empty())
@@ -306,10 +287,8 @@ static void DrawDocBody(TileDoc& d)
 
 	// ---- texture + grid row ----
 	{
-		// Files are PICKED, never typed.
 		if (NutexPicker("Texture", d.texPath, 280)) PushUndo(d);
-		// Optional normal map: set -> the tiles draw LIT (Lambert from the scene lights).
-		if (NutexPicker("Normal", d.normalPath, 280)) PushUndo(d);
+		if (NutexPicker("Normal", d.normalPath, 280)) PushUndo(d);   // set -> tiles draw LIT
 		ImGui::SameLine();
 		bool dx = d.normalDx;
 		if (ImGui::Checkbox("DirectX green", &dx)) { d.normalDx = dx; PushUndo(d); }
@@ -396,7 +375,6 @@ static void DrawDocBody(TileDoc& d)
 		}
 		else
 		{
-			// Free-form atlas regions (imported .atlas): each rect = one visual variant.
 			ImGui::TextDisabled("Rects (px, override the grid; several = visual variants):");
 			int kill = -1;
 			for (int ri = 0; ri < (int)t.rects.size(); ++ri)
@@ -443,7 +421,7 @@ static void DrawDocBody(TileDoc& d)
 			dl->AddLine(ImVec2(p0.x + c * cw, p0.y), ImVec2(p0.x + c * cw, p0.y + h), IM_COL32(255, 255, 255, 70));
 		for (int r = 0; r <= d.rows; ++r)
 			dl->AddLine(ImVec2(p0.x, p0.y + r * ch), ImVec2(p0.x + w, p0.y + r * ch), IM_COL32(255, 255, 255, 70));
-		// free-form rects: outline every tile's regions (selected green, others dim blue)
+		// free-form rects: selected tile green, others dim blue
 		for (int i = 0; i < (int)d.tiles.size(); ++i)
 			for (const auto& rc : d.tiles[i].rects)
 			{
@@ -460,7 +438,7 @@ static void DrawDocBody(TileDoc& d)
 				else
 					dl->AddRect(a, b, IM_COL32(80, 140, 255, 90));
 			}
-		// cell ownership tints: selected tile green, other tiles dim blue (tooltip names them)
+		// cell ownership tints
 		for (int i = 0; i < (int)d.tiles.size(); ++i)
 			for (int cell : d.tiles[i].cells)
 			{
@@ -486,8 +464,7 @@ static void DrawDocBody(TileDoc& d)
 					if (std::find(t.cells.begin(), t.cells.end(), cell) != t.cells.end())
 					{ if (!owners.empty()) owners += ", "; owners += t.name; }
 				ImGui::SetTooltip("cell %d%s%s", cell, owners.empty() ? "" : " — ", owners.c_str());
-				// grid-cell toggling only makes sense for grid tiles — a rect tile's visuals
-				// are its explicit rects (edited numerically above).
+				// grid-cell toggling applies to grid tiles only; rect tiles are edited numerically
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && d.sel >= 0 && d.sel < (int)d.tiles.size()
 				    && d.tiles[d.sel].rects.empty())
 				{
@@ -534,9 +511,8 @@ void DrawAllDocs()
 
 void OpenTileDoc(const std::string& path)
 {
-	// De-dup by the CANONICAL file, not the string: the same file arrives spelled
-	// differently (slashes, relative vs absolute — session restore vs a fresh open),
-	// and two docs for one file mean two windows fighting over it.
+	// De-dup by the CANONICAL file, not the string: the same file arrives spelled differently
+	// (slashes, relative vs absolute), and two docs for one file fight over it.
 	auto norm = [](const std::string& p)
 	{
 		boost::system::error_code ec;
@@ -564,7 +540,7 @@ void OpenTileDoc(const std::string& path)
 
 }  // namespace
 
-// ---- the module --------------------------------------------------------------------------------
+// ---- the module ----
 
 class NukeTilemapEditorModule : public NUKEModule
 {
@@ -579,8 +555,6 @@ public:
 
 	void OnLoad() override
 	{
-		// The type's OWNER supplies its tooling: double-click / "Open in Editor" on .nutile
-		// routes here through the engine registry — the editor core stays format-blind.
 		RegisterAssetEditor(".nutile", [](const std::string& path) { OpenTileDoc(path); });
 		std::cout << "[NukeTilemapEditor]\tloaded (.nutile editor registered)" << std::endl;
 	}
@@ -588,9 +562,7 @@ public:
 	void Run(AppInstance* instance) override
 	{
 		if (!instance || !instance->isEditor()) return;   // tooling: editor host only
-		// Run() executes on the loader's plugin thread; the window list is main-thread
-		// state (the UI iterates it every frame, unlocked) — defer the push to the game
-		// thread. The flag runs there too, so a re-enable can't double-push.
+		// Run() is a background plugin thread; the window list is main-thread state -> RunOnMain.
 		Jobs::RunOnMain([instance]()
 		{
 			if (g_windowPushed) return;
@@ -601,7 +573,7 @@ public:
 
 	void Shutdown() override
 	{
-		// Called on the main thread (DisablePlugin / UnloadModules) — safe to pop directly.
+		// Runs on the main thread (DisablePlugin / UnloadModules) — safe to pop directly.
 		if (g_windowPushed && instance) { instance->PopWindow("nuketilemap-editors"); g_windowPushed = false; }
 		for (TileDoc& d : g_docs) FreePreview(d);
 		g_docs.clear();
