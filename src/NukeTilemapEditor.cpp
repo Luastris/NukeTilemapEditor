@@ -582,7 +582,8 @@ public:
 
 	bool HasSettings() override { return false; }
 	void Settings() override {}
-	bool editorTool() override { return true; }   // always on in the editor; never ships
+	bool editorTool() override { return true; }
+	const char* companionOf() override { return "NukeTilemap.dll"; }   // always on in the editor; never ships
 };
 
 // Exported under the unmangled symbol "plugin" — the loader imports it via boost::dll.
