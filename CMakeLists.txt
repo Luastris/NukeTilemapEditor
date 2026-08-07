@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(NukeTilemapEditor CXX)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/../NukeEngine/cmake/NukeRunDir.cmake")   # NUKE_RUN_SUBDIR: x64 / macos / linux
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -24,11 +26,21 @@ add_library(NukeTilemapEditor SHARED
 # auto-detects that import and never ships this DLL with a game. Links NukeTilemap for the
 # InvalidateTileSet hot-reload seam.
 target_compile_definitions(NukeTilemapEditor PRIVATE
-    WIN32 _WINDOWS NOMINMAX _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS
+    _USE_MATH_DEFINES
     GLM_ENABLE_EXPERIMENTAL
-    BOOST_ALL_DYN_LINK
-    IMGUI_API=__declspec\(dllimport\)   # ImGui comes from the shared NukeImGui.dll
 )
+if(WIN32)
+    target_compile_definitions(NukeTilemapEditor PRIVATE
+        WIN32 _WINDOWS NOMINMAX _CRT_SECURE_NO_WARNINGS
+        BOOST_ALL_DYN_LINK
+        IMGUI_API=__declspec\(dllimport\)   # ImGui comes from the shared NukeImGui.dll
+    )
+else()
+    target_compile_options(NukeTilemapEditor PRIVATE -Wno-c++11-narrowing -Wno-unknown-attributes)
+    set_target_properties(NukeTilemapEditor PROPERTIES
+        PREFIX ""
+        BUILD_RPATH "@loader_path/..;$ORIGIN/..;@loader_path;$ORIGIN")   # engine (run dir) + sibling NukeTilemap
+endif()
 
 target_include_directories(NukeTilemapEditor PRIVATE
     ${NUKE_ROOT}/NukeEngine
@@ -43,7 +55,7 @@ target_include_directories(NukeTilemapEditor PRIVATE
 )
 
 target_link_directories(NukeTilemapEditor PRIVATE
-    ${NUKE_ROOT}/NukeEngine/x64/$<CONFIG>            # NukeEngine.lib (import lib)
+    ${NUKE_ROOT}/NukeEngine/${NUKE_RUN_SUBDIR}/$<CONFIG>            # NukeEngine.lib (import lib)
     ${NUKE_ROOT}/NukeImGui/build/$<CONFIG>           # NukeImGui.lib
     ${NUKE_ROOT}/build/NukeTilemap/$<CONFIG>         # NukeTilemap.lib
     ${VCPKG_INSTALLED}/$<$<CONFIG:Debug>:debug/>lib  # boost (auto-linked)
@@ -56,7 +68,7 @@ target_link_libraries(NukeTilemapEditor PRIVATE
 )
 
 # Deploy the plugin DLL into the host's modules/ folder.
-set(MODULES_DIR "${NUKE_ROOT}/NukeEngine/x64/$<CONFIG>/modules")
+set(MODULES_DIR "${NUKE_ROOT}/NukeEngine/${NUKE_RUN_SUBDIR}/$<CONFIG>/modules")
 add_custom_command(TARGET NukeTilemapEditor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${MODULES_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

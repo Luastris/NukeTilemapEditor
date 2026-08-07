@@ -587,5 +587,5 @@ public:
 };
 
 // Exported under the unmangled symbol "plugin" — the loader imports it via boost::dll.
-extern "C" __declspec(dllexport) NukeTilemapEditorModule plugin;
+extern "C" BOOST_SYMBOL_EXPORT NukeTilemapEditorModule plugin;
 NukeTilemapEditorModule plugin;
